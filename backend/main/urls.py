@@ -24,6 +24,6 @@ from relations.urls import urlpatterns as relations_urlpatterns
 
 urlpatterns = [path('admin/', admin.site.urls)] \
               + user_urlpatterns \
-              + ingredients_recipe_urlpatterns \
               + relations_urlpatterns \
+              + ingredients_recipe_urlpatterns \
               + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,7 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from djoser.views import UserViewSet
-from djoser.conf import settings
 from rest_framework.generics import RetrieveUpdateDestroyAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,6 +14,7 @@ from django.shortcuts import get_object_or_404
 
 from custom_user.models import Subscription
 from custom_user.serializers import AvatarSerializer, BaseUserSerializer, UserSubscriptionSerializer
+from ingredients_recipe.permissions import IsAuthorOrReadOnly
 
 User = get_user_model()
 
@@ -24,11 +24,15 @@ class CustomUserViewSet(UserViewSet):
 
     @action(detail=False, methods=['get'], url_path='subscriptions')
     def subscriptions(self, request):
-        serializer = UserSubscriptionSerializer([sub.to for sub in request.user.from_sender.select_related('to')],
-                                                many=True, context={'request': request})
+        insts = [sub.to for sub in request.user.from_sender.select_related('to')]
+        page = self.paginate_queryset(insts)
+        if page:
+            serializer = UserSubscriptionSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+        serializer = UserSubscriptionSerializer(insts, many=True, context={'request': request})
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post', 'delete'], url_path='subscribe')
+    @action(detail=True, methods=['post', 'delete'], url_path='subscribe', permission_classes=[IsAuthorOrReadOnly])
     def subscribe(self, request, id=None):
         if request.method == 'POST':
             return self._create(request, id)
@@ -38,25 +42,19 @@ class CustomUserViewSet(UserViewSet):
         target_user = get_object_or_404(User, pk=user_id)
         if request.user == target_user:
             return Response(status=status.HTTP_400_BAD_REQUEST)
-        Subscription.objects.get_or_create(from_source=request.user, to=target_user)
+        inst, created = Subscription.objects.get_or_create(from_source=request.user, to=target_user)
+        if not created:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
         return Response(
             UserSubscriptionSerializer(target_user, context={'request': request}).data,
-            status=status.HTTP_201_CREATED
-        )
+            status=status.HTTP_201_CREATED)
 
     def _remove(self, request, user_id):
         subscription = request.user.from_sender.filter(to_id=user_id)
+        get_object_or_404(User, pk=user_id)
         if not subscription.exists():
             return Response(status=status.HTTP_400_BAD_REQUEST)
         subscription.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(detail=False, methods=['post'], url_path='set_password')
-    def set_password(self, request):
-        serializer = settings.SERIALIZERS.set_password(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        request.user.set_password(serializer.data["new_password"])
-        request.user.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

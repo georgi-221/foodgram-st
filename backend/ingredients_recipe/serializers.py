@@ -10,6 +10,8 @@ from ingredients_recipe.models import Ingredient
 from ingredients_recipe.models import Recipe, RecipeIngredient
 from django.contrib.auth import get_user_model
 
+from main.settings import MIN_COOKING_TIME, MAX_COOKING_TIME
+
 User = get_user_model()
 
 
@@ -61,7 +63,9 @@ class RecipeListSerializer(serializers.ModelSerializer):
 
 class RecipeIngredientWriteSerializer(serializers.Serializer):
     id = serializers.PrimaryKeyRelatedField(queryset=Ingredient.objects.all())
-    amount = serializers.IntegerField()
+    amount = serializers.IntegerField(
+        min_value=MIN_COOKING_TIME,
+        max_value=MAX_COOKING_TIME)
 
 
 class ImageField(serializers.Field):
@@ -78,29 +82,49 @@ class ImageField(serializers.Field):
             raise serializers.ValidationError('Неверный формат изображения')
 
 
+class ImageSerializerField(serializers.Field):
+    def to_internal_value(self, data):
+        try:
+            format_, imgstr = data.split(';base64,')
+            ext = format_.split('/')[-1]
+            return ContentFile(base64.b64decode(imgstr), name=f'{uuid.uuid4()}.{ext}')
+        except:
+            raise serializers.ValidationError('Некорректный формат изображения')
+
+
 class RecipeWriteSerializer(serializers.ModelSerializer):
     ingredients = RecipeIngredientWriteSerializer(many=True)
-    image = ImageField()
-    cooking_time = serializers.IntegerField()
+    image = ImageSerializerField()
+    cooking_time = serializers.IntegerField(
+        min_value=MIN_COOKING_TIME,
+        max_value=MAX_COOKING_TIME)
 
     class Meta:
         model = Recipe
         fields = ('ingredients', 'image', 'name', 'text', 'cooking_time')
 
-    def validate_ingredients(self, ingredients):
-        if not ingredients:
-            raise serializers.ValidationError('Добавьте хотя бы один ингредиент')
-
-        ids = [ingredient['id'] for ingredient in ingredients]
-        if len(ids) != len(set(ids)):
-            raise serializers.ValidationError('Ингредиенты не должны повторяться')
-        return ingredients
+    def validate_ingredients(self, value):
+        if not value:
+            raise serializers.ValidationError('')
+        ingredient_ids = set()
+        for ingredient in value:
+            if not ingredient.get('id'):
+                raise serializers.ValidationError('')
+            if ingredient['id'] in ingredient_ids:
+                raise serializers.ValidationError('')
+            ingredient_ids.add(ingredient['id'])
+        return value
 
     @transaction.atomic
     def create(self, validated_data):
+        if 'ingredients' not in validated_data:
+            raise serializers.ValidationError('')
         ingredients = validated_data.pop('ingredients')
+        image = validated_data.pop('image')
+
         recipe = Recipe.objects.create(
             author=self.context['request'].user,
+            image=image,
             **validated_data
         )
         self._save_ingredients(recipe, ingredients)

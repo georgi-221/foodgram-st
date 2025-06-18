@@ -24,5 +24,5 @@ def six_string():
 
 
 class ShortLink(models.Model):
-    id = models.CharField(max_length=6, primary_key=True, default=six_string)
+    id = models.CharField(max_length=6, primary_key=True, default=six_string, editable=False)
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE)
